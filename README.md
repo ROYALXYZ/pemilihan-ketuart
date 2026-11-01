@@ -97,7 +97,9 @@ sequenceDiagram
 ## Struktur Repositori
 
 ```text
-pemilihan-rt/
+├── .github/
+│   └── workflows/
+│       └── ci.yml           # Otomasi CI (uji e2e, crash test, build) & CD deploy VPS
 ├── data/                    # Folder data persisten (diabaikan dari git)
 │   ├── audit.log            # Log audit append-only (JSONL)
 │   ├── photos/              # Berkas foto calon hasil unggahan
@@ -346,3 +348,18 @@ npm run build
 ```
 
 Semua pengujian memastikan bahwa integritas data suara, autentikasi PIN, pencegahan auto-repeat keyboard, pemulihan crash berkas rusak, dan log audit berfungsi normal sebelum diaplikasikan di lapangan.
+
+---
+
+## Otomasi CI/CD (GitHub Actions)
+
+Repositori ini menyertakan alur CI/CD otomatis di `.github/workflows/ci.yml`:
+
+1. **Continuous Integration (CI)**:
+   - Berjalan pada setiap `push` dan `pull_request` ke cabang `main`.
+   - Menguji instalasi dependensi (`npm ci`), kompilasi TypeScript & Vite (`npm run build`), pengujian API e2e (42 assertions), uji ketahanan mati lampu (`npm run test:crash`), dan verifikasi pembuatan image Docker (`docker build`).
+2. **Continuous Deployment (CD)**:
+   - Berjalan otomatis hanya setelah tahap CI lulus pada `push` ke cabang `main`.
+   - Melakukan SSH ke VPS, menarik kode terbaru (`git pull --ff-only`), menyusun ulang container (`docker compose up -d --build`), memverifikasi health check endpoint `/api/state`, dan membersihkan image lama yang tidak terpakai (`docker image prune -f`).
+   - Membutuhkan konfigurasi *Secrets* di repositori GitHub (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_APP_DIR`, `VPS_SSH_KEY`, dan `VPS_KNOWN_HOSTS`).
+

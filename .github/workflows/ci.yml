@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run end-to-end tests
+        run: |
+          set -euo pipefail
+          npm start > /tmp/pemilihan-rt-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:8787/api/state >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Server berhenti sebelum siap:"
+              cat /tmp/pemilihan-rt-server.log
+              exit 1
+            fi
+            sleep 0.2
+          done
+
+          curl --fail --silent http://127.0.0.1:8787/api/state >/dev/null
+          npm run test:e2e
+
+      - name: Run crash recovery tests
+        run: npm run test:crash
+
+      - name: Build Docker image
+        run: docker build -t pemilihan-rt:ci .
+
+  deploy:
+    name: Deploy to VPS
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Prepare SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          : "${VPS_SSH_KEY:?GitHub secret VPS_SSH_KEY belum diatur}"
+          : "${VPS_KNOWN_HOSTS:?Atur VPS_KNOWN_HOSTS dengan host key yang sudah diverifikasi via console provider}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Pull and restart on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy -p "${VPS_PORT:-22}" \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          if [ ! -d "$APP_DIR/.git" ]; then
+            echo "Folder deploy tidak ditemukan atau bukan repo git: $APP_DIR" >&2
+            exit 1
+          fi
+
+          cd "$APP_DIR"
+          echo "== Sebelum: $(git rev-parse --short HEAD) =="
+
+          git fetch --prune origin main
+          git pull --ff-only origin main
+
+          if [ ! -f .env ]; then
+            echo "PERINGATAN: .env tidak ada, memakai nilai bawaan docker-compose.yml" >&2
+          fi
+
+          docker compose up -d --build
+          docker compose ps
+
+          echo "== Sesudah: $(git rev-parse --short HEAD) =="
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8787/api/state >/dev/null; then
+              echo "Health check OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Health check gagal, log terakhir:" >&2
+          docker compose logs --tail 50 >&2
+          exit 1
+          REMOTE
+
+      - name: Clean old images
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        continue-on-error: true
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "${VPS_PORT:-22}" \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            "$VPS_USER@$VPS_HOST" "docker image prune -f"

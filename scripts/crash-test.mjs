@@ -2,9 +2,11 @@
 // lalu hidupkan ulang dan periksa apakah data masih utuh (bukan hilang/rusak).
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const DATA = join(process.env.TEMP, 'rt-crash-test', 'data');
+const TEMP = process.env.TEMP || tmpdir();
+const DATA = join(TEMP, 'rt-crash-test', 'data');
 const PORT = 8799;
 const BASE = `http://localhost:${PORT}`;
 let cookie = '';
@@ -40,7 +42,7 @@ const call = async (path, init = {}) => {
   return { status: res.status, body: text ? JSON.parse(text) : null };
 };
 
-rmSync(join(process.env.TEMP, 'rt-crash-test'), { recursive: true, force: true });
+rmSync(join(TEMP, 'rt-crash-test'), { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
 // --- Ronde 1: catat 5 suara lalu matikan paksa (SIGKILL) saat proses hidup ---

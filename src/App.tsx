@@ -42,7 +42,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Cropper, { type Area } from 'react-easy-crop';
 import 'react-easy-crop/react-easy-crop.css';
-import { Separator } from '@/components/ui/separator';
 import {
   api,
   login,
@@ -188,6 +187,22 @@ export function App() {
   boardRef.current = board;
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  const fullscreenRequestRef = useRef(false);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      if (!document.fullscreenElement && !fullscreenRequestRef.current) setIsFullscreen(false);
+    };
+    const exitFallbackWithEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.fullscreenElement) setIsFullscreen(false);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    window.addEventListener('keydown', exitFallbackWithEscape);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      window.removeEventListener('keydown', exitFallbackWithEscape);
+    };
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -625,12 +640,18 @@ export function App() {
   };
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      void document.documentElement.requestFullscreen();
+    if (!isFullscreen) {
       setIsFullscreen(true);
+      if (document.documentElement.requestFullscreen) {
+        // ponytail: Jika fullscreen native ditolak, tampilan ringkas tetap aktif sampai tombol keluar atau Esc.
+        fullscreenRequestRef.current = true;
+        void document.documentElement.requestFullscreen().catch(() => {}).finally(() => {
+          fullscreenRequestRef.current = false;
+        });
+      }
     } else {
-      void document.exitFullscreen();
       setIsFullscreen(false);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     }
   };
 
@@ -661,11 +682,17 @@ export function App() {
   const sessionWarning = lastStart && (lastStart.note || lastStart.recoveredFromBackup === true) ? lastStart : null;
   const filteredAudit = auditFilter === 'all' ? auditEntries : auditEntries.filter((entry) => entry.action === auditFilter);
   const themeTitle = `Mode: ${theme === 'system' ? 'Ikut sistem' : theme === 'light' ? 'Terang' : 'Gelap'}. Klik untuk mengganti tema.`;
+  const projectorGrid = board.candidates.length <= 3
+    ? ['grid-cols-1 grid-rows-1', 'grid-cols-2 grid-rows-1', 'grid-cols-3 grid-rows-1'][Math.max(0, board.candidates.length - 1)]
+    : board.candidates.length === 4 ? 'grid-cols-2 grid-rows-2'
+    : board.candidates.length <= 6 ? 'grid-cols-3 grid-rows-2'
+    : board.candidates.length <= 8 ? 'grid-cols-4 grid-rows-2'
+    : 'grid-cols-4 grid-rows-3';
 
   return (
-    <div className="min-h-screen bg-muted/40 pb-12 transition-colors dark:bg-background">
+    <div className={isFullscreen ? 'flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground' : 'min-h-screen bg-muted/40 pb-12 transition-colors dark:bg-background'}>
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur-md">
+      <header className={isFullscreen ? 'hidden' : 'sticky top-0 z-40 border-b bg-background/95 backdrop-blur-md'}>
         <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 sm:h-16 sm:px-6 sm:py-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -742,7 +769,8 @@ export function App() {
               variant="outline"
               size="icon"
               onClick={toggleFullscreen}
-              title={isFullscreen ? 'Keluar layar penuh' : 'Mode Proyektor (Layar Penuh)'}
+              title={isFullscreen ? 'Keluar mode proyektor' : 'Tampilkan kartu calon dalam mode proyektor'}
+              aria-label={isFullscreen ? 'Keluar mode proyektor' : 'Masuk mode proyektor'}
               className="h-9 w-9"
             >
               {isFullscreen ? (
@@ -780,7 +808,7 @@ export function App() {
       </header>
 
       {/* Main Content Dashboard */}
-      <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
+      <main className={isFullscreen ? 'flex min-h-0 w-full flex-1 flex-col gap-2 px-3 py-2' : 'mx-auto max-w-7xl px-4 pt-6 sm:px-6'}>
         <input
           ref={fileInputRef}
           type="file"
@@ -790,7 +818,7 @@ export function App() {
           aria-label="Pilih foto calon"
         />
         {/* Error notification alert */}
-        {actionError && (
+        {actionError && !isFullscreen && (
           <div role="alert" className="mb-6 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             <div className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -808,7 +836,7 @@ export function App() {
         )}
 
         {/* Top Summary Metric Cards (Shadcn Stats Grid) */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
+        <div className={isFullscreen ? 'hidden' : 'grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6'}>
           {/* Card 1: Total Suara Masuk */}
           <Card className="border-border/80 shadow-xs">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -866,7 +894,7 @@ export function App() {
         </div>
 
         {/* Admin Operational Strip (Tampil jika Admin Login) */}
-        {isAdmin && (
+        {isAdmin && !isFullscreen && (
           <Card className="mt-6 border-primary/30 bg-primary/5 shadow-xs">
             <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
               <div className="flex flex-wrap items-center gap-3">
@@ -948,8 +976,8 @@ export function App() {
         )}
 
         {/* Section: Grid Kartu Calon (Shadcn Dashboard Candidate Cards) */}
-        <div className="mt-6">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className={isFullscreen ? 'flex min-h-0 flex-1 flex-col' : 'mt-6'}>
+          <div className={isFullscreen ? 'hidden' : 'mb-4 flex flex-wrap items-end justify-between gap-3'}>
             <div>
               <h2 className="text-lg font-bold tracking-tight">Daftar Calon Ketua RT</h2>
               <p className="text-xs text-muted-foreground">
@@ -970,7 +998,7 @@ export function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className={isFullscreen ? `grid min-h-0 flex-1 gap-2 ${projectorGrid}` : 'grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'}>
             {board.candidates.map((candidate, idx) => {
               const isPulsing = pulseCandidateId === candidate.id;
               const isLead = candidate.lead && candidate.votes > 0;
@@ -978,7 +1006,7 @@ export function App() {
               return (
                 <Card
                   key={candidate.id}
-                  className={`relative flex flex-col justify-between gap-0 overflow-hidden border p-0 transition-all duration-200 ${
+                   className={`relative flex flex-col gap-0 overflow-hidden border p-0 transition-all duration-200 ${isFullscreen ? 'min-h-0 min-w-0 justify-start' : 'justify-between'} ${
                     isPulsing
                       ? 'ring-2 ring-primary scale-[1.01] bg-primary/5'
                       : isLead
@@ -992,8 +1020,8 @@ export function App() {
                   )}
 
                   <div
-                    className="relative w-full overflow-hidden bg-muted"
-                    style={{ aspectRatio: String(PHOTO_RATIO[candidate.photoRatio ?? 'landscape']) }}
+                     className={isFullscreen ? 'relative min-h-0 w-full flex-1 overflow-hidden bg-muted' : 'relative w-full overflow-hidden bg-muted'}
+                     style={isFullscreen ? undefined : { aspectRatio: String(PHOTO_RATIO[candidate.photoRatio ?? 'landscape']) }}
                   >
                     {candidate.photo ? (
                       <img
@@ -1007,18 +1035,18 @@ export function App() {
                         <span className="text-5xl font-black tracking-tight text-muted-foreground/50">
                           {initials(candidate.name)}
                         </span>
-                        <span className="text-[11px] font-medium text-muted-foreground">Foto belum diunggah</span>
+                         <span className={isFullscreen ? 'hidden' : 'text-[11px] font-medium text-muted-foreground'}>Foto belum diunggah</span>
                       </div>
                     )}
-                    <span className="absolute left-4 top-4 rounded-md bg-foreground px-2.5 py-1 text-sm font-bold tabular-nums text-background shadow-sm">
+                     <span className={`absolute rounded-md bg-foreground px-2.5 py-1 text-sm font-bold tabular-nums text-background shadow-sm ${isFullscreen ? 'left-2 top-2' : 'left-4 top-4'}`}>
                       No. {candidate.id}
                     </span>
-                    {candidate.photo?.startsWith('/candidates/') && (
+                     {!isFullscreen && candidate.photo?.startsWith('/candidates/') && (
                       <span className="absolute right-3 top-4 rounded bg-background/95 px-2 py-1 text-[11px] font-semibold text-muted-foreground shadow-sm">
                         Foto contoh
                       </span>
                     )}
-                    {isAdmin && (
+                     {isAdmin && !isFullscreen && (
                       <button
                         type="button"
                         onClick={() => handlePhotoPick(candidate.id)}
@@ -1033,13 +1061,13 @@ export function App() {
                       </button>
                     )}
                   </div>
-                   <CardHeader className="px-6 pt-6 pb-3">
+                   <CardHeader className={isFullscreen ? 'min-w-0 shrink-0 px-3 pt-2 pb-1' : 'px-6 pt-6 pb-3'}>
                      <div className="flex items-start justify-between gap-2">
                        <div className="min-w-0">
-                         <CardTitle className="text-lg font-bold leading-snug sm:text-xl">{candidate.name}</CardTitle>
-                         <CardDescription className="text-xs">Nomor urut {candidate.id}</CardDescription>
+                          <CardTitle className={isFullscreen ? 'truncate text-base font-bold leading-tight lg:text-lg' : 'text-lg font-bold leading-snug sm:text-xl'} title={isFullscreen ? candidate.name : undefined}>{candidate.name}</CardTitle>
+                          {!isFullscreen && <CardDescription className="text-xs">Nomor urut {candidate.id}</CardDescription>}
                        </div>
-                       {isLead && (
+                        {isLead && !isFullscreen && (
                          <Badge variant="default" className="shrink-0 gap-1 text-[11px] font-bold">
                            <Trophy className="h-3 w-3" /> Memimpin
                          </Badge>
@@ -1047,28 +1075,28 @@ export function App() {
                      </div>
                    </CardHeader>
 
-                  <CardContent className="space-y-4 px-6 pb-6">
+                   <CardContent className={isFullscreen ? 'shrink-0 px-3 pb-2' : 'space-y-4 px-6 pb-6'}>
                     {/* Giant Vote Number */}
-                    <div className="flex items-baseline justify-between rounded-lg bg-muted/50 p-3">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                     <div className={isFullscreen ? 'flex items-baseline justify-between gap-2 rounded-lg bg-muted/50 px-2 py-0.5' : 'flex items-baseline justify-between rounded-lg bg-muted/50 p-3'}>
+                       <span className={isFullscreen ? 'truncate text-sm font-semibold text-muted-foreground' : 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'}>
                         Perolehan Suara
                       </span>
                       <div className="text-right">
                         <span
-                          className={`text-3xl font-black tracking-tight font-mono sm:text-4xl ${
+                           className={`font-mono font-black tabular-nums tracking-tight ${isFullscreen ? 'text-3xl lg:text-4xl' : 'text-3xl sm:text-4xl'} ${
                             isLead ? 'text-primary' : 'text-foreground'
                           }`}
                         >
                           {candidate.votes}
                         </span>
-                        <span className="ml-1 text-xs text-muted-foreground font-sans">
+                         <span className={isFullscreen ? 'hidden' : 'ml-1 text-xs text-muted-foreground font-sans'}>
                           suara
                         </span>
                       </div>
                     </div>
 
                     {/* Progress Percentage Share */}
-                    <div className="space-y-1.5">
+                     <div className={isFullscreen ? 'hidden' : 'space-y-1.5'}>
                       <div className="flex justify-between text-xs font-medium">
                         <span className="text-muted-foreground">Proporsi Suara</span>
                         <span className="font-mono font-bold text-foreground">
@@ -1084,7 +1112,7 @@ export function App() {
                   </CardContent>
 
                   {/* Operator Controls inside Candidate Card */}
-                   {isAdmin && (
+                   {isAdmin && !isFullscreen && (
                      <div className="border-t bg-muted/30 p-3 pt-3">
                        <div className="mb-3 flex flex-wrap gap-2">
                          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openCandidateEdit(candidate.id, candidate.name)}>
@@ -1149,8 +1177,22 @@ export function App() {
           </div>
         </div>
 
+        {isFullscreen && (
+          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-1 text-sm">
+            <span className="shrink-0 font-bold tabular-nums">{board.total} suara masuk</span>
+            <span className={board.status === 'open' ? 'shrink-0 font-semibold text-primary' : 'shrink-0 font-semibold text-muted-foreground'}>
+              {board.status === 'open' ? 'Berjalan' : 'Terkunci'}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">Memimpin: <strong className="text-foreground">{leaderCandidate?.name ?? 'Belum ada'}</strong></span>
+            <span className="shrink-0 text-muted-foreground">{updatedLabel(board.updatedAt)} WIB</span>
+            <Button type="button" variant="outline" size="sm" onClick={toggleFullscreen} title="Keluar mode proyektor (Esc)" aria-label="Keluar mode proyektor" className="shrink-0 gap-1.5">
+              <Minimize2 className="h-4 w-4" /> Keluar
+            </Button>
+          </div>
+        )}
+
         {/* Section: Activity Audit Log (Riwayat Input Terakhir) */}
-        {board.log && board.log.length > 0 && (
+        {!isFullscreen && board.log && board.log.length > 0 && (
           <Card className="mt-8 border-border/80 shadow-xs">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -1190,16 +1232,12 @@ export function App() {
         )}
 
         {/* Footer */}
-        <footer className="mt-12 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs text-muted-foreground sm:flex-row">
+        <footer className={isFullscreen ? 'hidden' : 'mt-12 flex flex-col items-center justify-between gap-4 border-t pt-6 text-xs text-muted-foreground sm:flex-row'}>
           <p>
             {board.election.title} · {board.election.subtitle} · Pelaksanaan{' '}
             {formatDate(board.election.date)}
           </p>
-          <div className="flex items-center gap-4">
-            <span>Sistem Hitung Cepat RT</span>
-            <Separator orientation="vertical" className="h-4" />
-            <span>Kapasitas Ringan Docker</span>
-          </div>
+          <span>Sistem Hitung Cepat RT</span>
         </footer>
       </main>
 

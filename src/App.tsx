@@ -12,6 +12,8 @@ import {
   Minimize2,
   Volume2,
   VolumeX,
+  Sun,
+  Moon,
   History,
   AlertCircle,
   Trophy,
@@ -147,6 +149,14 @@ export function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('rt-theme');
+      return saved === 'light' || saved === 'dark' ? saved : 'system';
+    } catch {
+      return 'system';
+    }
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmInput, setResetConfirmInput] = useState('');
@@ -178,6 +188,34 @@ export function App() {
   boardRef.current = board;
 
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = () => {
+      const dark = theme === 'dark' || (theme === 'system' && media.matches);
+      document.documentElement.classList.toggle('dark', dark);
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0b0b0b' : '#ffffff');
+    };
+    applyTheme();
+    if (theme === 'system') {
+      if (media.addEventListener) media.addEventListener('change', applyTheme);
+      else media.addListener(applyTheme);
+    }
+    return () => {
+      if (media.removeEventListener) media.removeEventListener('change', applyTheme);
+      else media.removeListener(applyTheme);
+    };
+  }, [theme]);
+
+  const cycleTheme = () => {
+    const next = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system';
+    setTheme(next);
+    try {
+      localStorage.setItem('rt-theme', next);
+    } catch {
+      // Tetap berfungsi selama sesi ini saat penyimpanan peramban diblokir.
+    }
+  };
 
   const loadAudit = useCallback(async () => {
     if (!isAdmin) return;
@@ -296,7 +334,7 @@ export function App() {
 
       // Don't trigger if user is typing in an input
       const target = e.target as HTMLElement;
-      if (target.closest('[role="dialog"]') || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.closest('[role="dialog"], [data-theme-toggle]') || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
       if (/^[1-6]$/.test(e.key)) {
         const candidateIndex = parseInt(e.key, 10) - 1;
@@ -622,35 +660,31 @@ export function App() {
   const lastStart = isAdmin ? auditEntries.find((entry) => entry.action === 'server_start') : undefined;
   const sessionWarning = lastStart && (lastStart.note || lastStart.recoveredFromBackup === true) ? lastStart : null;
   const filteredAudit = auditFilter === 'all' ? auditEntries : auditEntries.filter((entry) => entry.action === auditFilter);
+  const themeTitle = `Mode: ${theme === 'system' ? 'Ikut sistem' : theme === 'light' ? 'Terang' : 'Gelap'}. Klik untuk mengganti tema.`;
 
   return (
-    <div className="min-h-screen bg-muted/40 pb-12 transition-colors">
+    <div className="min-h-screen bg-muted/40 pb-12 transition-colors dark:bg-background">
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur-md">
         <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 sm:h-16 sm:px-6 sm:py-0">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
-              <Vote className="h-5 w-5" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-base font-bold tracking-tight sm:text-lg">
+                {board.election.title}
+              </h1>
+              <Badge
+                variant={board.status === 'open' ? 'success' : 'secondary'}
+                className="hidden sm:inline-flex"
+              >
+                <span
+                  className={`mr-1.5 h-1.5 w-1.5 rounded-full ${
+                    board.status === 'open' ? 'animate-pulse bg-primary' : 'bg-muted-foreground'
+                  }`}
+                />
+                {board.status === 'open' ? 'Sedang berjalan' : 'Selesai & terkunci'}
+              </Badge>
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-base font-bold tracking-tight sm:text-lg">
-                  {board.election.title}
-                </h1>
-                <Badge
-                  variant={board.status === 'open' ? 'success' : 'secondary'}
-                  className="hidden sm:inline-flex"
-                >
-                  <span
-                    className={`mr-1.5 h-1.5 w-1.5 rounded-full ${
-                      board.status === 'open' ? 'animate-pulse bg-primary' : 'bg-muted-foreground'
-                    }`}
-                  />
-                  {board.status === 'open' ? 'Sedang berjalan' : 'Selesai & terkunci'}
-                </Badge>
-              </div>
-              <p className="truncate text-xs text-muted-foreground">{board.election.subtitle}</p>
-            </div>
+            <p className="truncate text-xs text-muted-foreground">{board.election.subtitle}</p>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -678,6 +712,28 @@ export function App() {
                 <Volume2 className="h-4 w-4 text-foreground" />
               ) : (
                 <VolumeX className="h-4 w-4 text-muted-foreground" />
+              )}
+            </Button>
+
+            <Button
+              type="button"
+              data-theme-toggle
+              variant="outline"
+              size="icon"
+              onClick={cycleTheme}
+              title={themeTitle}
+              aria-label={themeTitle}
+              className="h-9 w-9"
+            >
+              {theme === 'system' ? (
+                <span className="relative h-4 w-4" aria-hidden="true">
+                  <Sun className="absolute left-0 top-0 h-3 w-3" />
+                  <Moon className="absolute bottom-0 right-0 h-3 w-3" />
+                </span>
+              ) : theme === 'light' ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
               )}
             </Button>
 
@@ -880,7 +936,7 @@ export function App() {
             {sessionWarning && (
               <CardContent className="pt-0">
                 <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" />
                   <div>
                     <p className="font-bold">Periksa data: sesi server sebelumnya tidak berakhir normal atau dipulihkan dari cadangan.</p>
                     <p className="mt-1 text-xs text-muted-foreground">{sessionWarning.note || 'Data dipulihkan dari berkas cadangan.'} Buka Log Aktivitas untuk memeriksa perubahan terakhir.</p>
@@ -968,7 +1024,7 @@ export function App() {
                         onClick={() => handlePhotoPick(candidate.id)}
                         title={`Atur foto ${candidate.name}`}
                         aria-label={`Atur foto ${candidate.name}`}
-                        className="absolute inset-0 flex items-center justify-center bg-foreground/55 text-background opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring hover:opacity-100"
+                         className="absolute inset-0 flex items-center justify-center bg-foreground/55 text-background opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring hover:opacity-100 dark:bg-background/70 dark:text-foreground"
                       >
                         <span className="inline-flex items-center gap-2 rounded-md bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm">
                           <Camera className="h-4 w-4" />
@@ -1159,7 +1215,7 @@ export function App() {
 
           {sessionWarning && (
             <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" />
               <div>
                 <p className="font-bold">Perhatian: periksa kembali data suara.</p>
                 {sessionWarning.note && <p className="mt-1">{sessionWarning.note}</p>}
@@ -1209,7 +1265,7 @@ export function App() {
                   {entry.totalAfter !== undefined && <span>Total setelah: <strong className="text-foreground">{entry.totalAfter}</strong></span>}
                 </div>
                 {entry.note && <p className="mt-2 text-xs text-muted-foreground">{entry.note}</p>}
-                {entry.recoveredFromBackup === true && <p className="mt-2 text-xs font-semibold text-amber-700">Data dipulihkan dari cadangan.</p>}
+                 {entry.recoveredFromBackup === true && <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Data dipulihkan dari cadangan.</p>}
               </div>
             ))}
           </div>

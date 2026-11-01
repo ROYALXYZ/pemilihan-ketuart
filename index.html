@@ -3,7 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#18181b" />
+    <meta name="theme-color" content="#ffffff" />
+    <script>
+      (function () {
+        var theme = 'system';
+        try {
+          var saved = localStorage.getItem('rt-theme');
+          if (saved === 'light' || saved === 'dark') theme = saved;
+        } catch (error) {
+          // Penyimpanan mungkin diblokir; gunakan preferensi sistem.
+        }
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0b0b0b' : '#ffffff');
+      }());
+    </script>
     <meta name="description" content="Papan hitung suara digital pemilihan Ketua RT." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Penghitungan Suara · Pemilihan Ketua RT</title>

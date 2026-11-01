@@ -19,12 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -60,10 +61,33 @@ jobs:
       - name: Build Docker image
         run: docker build -t pemilihan-rt:ci .
 
-  deploy:
-    name: Deploy to VPS
+  preflight:
+    name: Check deploy secrets
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -n "$VPS_HOST" ] && [ -n "$VPS_SSH_KEY" ] && [ -n "$VPS_KNOWN_HOSTS" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Secret deploy lengkap, lanjut ke VPS."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy dilewati: secret VPS_HOST / VPS_SSH_KEY / VPS_KNOWN_HOSTS belum lengkap."
+          fi
+
+  deploy:
+    name: Deploy to VPS
+    needs: [verify, preflight]
+    if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -74,12 +98,8 @@ jobs:
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
         run: |
           set -euo pipefail
-          : "${VPS_SSH_KEY:?GitHub secret VPS_SSH_KEY belum diatur}"
-          : "${VPS_KNOWN_HOSTS:?Atur VPS_KNOWN_HOSTS dengan host key yang sudah diverifikasi via console provider}"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
@@ -112,7 +132,7 @@ jobs:
           git pull --ff-only origin main
 
           if [ ! -f .env ]; then
-            echo "PERINGATAN: .env tidak ada, memakai nilai bawaan docker-compose.yml" >&2
+            echo "PERINGATAN: .env tidak ada, docker-compose memakai nilai bawaan" >&2
           fi
 
           docker compose up -d --build

@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.git
+.impeccable
+.opencode-jce
+.playwright-mcp
+.opencode-context.md
+*.md
+!README.md

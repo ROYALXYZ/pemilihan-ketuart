@@ -1,0 +1,15 @@
+{
+  "election": {
+    "title": "Pemilihan Ketua RT 007",
+    "subtitle": "RW 004 · Kelurahan Sukamaju",
+    "date": "2026-11-08"
+  },
+  "candidates": [
+    { "id": 1, "name": "Budi Santoso", "photo": "/candidates/01.jpg" },
+    { "id": 2, "name": "Siti Rahmawati", "photo": "/candidates/02.jpg" },
+    { "id": 3, "name": "Agus Pratama", "photo": "/candidates/03.jpg" },
+    { "id": 4, "name": "Nur Aini", "photo": "/candidates/04.jpg" },
+    { "id": 5, "name": "Dedi Kurniawan", "photo": "/candidates/05.jpg" },
+    { "id": 6, "name": "Rina Puspitasari", "photo": "/candidates/06.jpg" }
+  ]
+}

@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# Runtime persistent data (state, photos, audit logs)
+# Biarkan folder data tetap ada dengan .gitkeep, tapi abaikan berkas runtime-nya
+data/*
+!data/.gitkeep
+
+# Environment variables & local secrets
+.env
+.env.*
+!.env.example
+
+# Review & MCP session artifacts
+.impeccable/
+.playwright-mcp/
+.opencode-jce/
+.opencode-context.md
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

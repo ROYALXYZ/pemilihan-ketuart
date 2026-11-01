@@ -296,7 +296,7 @@ Seluruh endpoint berada di bawah awalan `/api`. Endpoint publik dapat diakses ta
 - `GET /api/state`: Mengambil kondisi penghitungan suara saat ini (calon, total suara, persentase, status, update terakhir).
 - `GET /api/stream`: Membuka koneksi Server-Sent Events (SSE) untuk menerima pembaruan state secara langsung.
 - `GET /api/session`: Memeriksa apakah peramban saat ini terautentikasi sebagai operator (`{ admin: boolean }`).
-- `POST /api/login`: Masuk operator dengan PIN (`{ pin: string }`). Mengembalikan cookie `session`. Maksimal 8 percobaan per menit per alamat IP.
+- `POST /api/login`: Masuk operator dengan PIN (`{ pin: string }`). Mengembalikan cookie `session`. Maksimal 8 percobaan per menit per alamat IP. Saat berjalan di balik Cloudflare Tunnel, IP klien dibaca dari `cf-connecting-ip` (fallback `x-forwarded-for` / `x-real-ip`) sehingga blokir hanya berlaku untuk penyerang, bukan semua pengunjung.
 - `POST /api/logout`: Menghapus sesi operator dan membersihkan cookie.
 
 ### Endpoint Khusus Operator (Admin)
@@ -337,7 +337,7 @@ Pada deployment Docker, semua variabel di atas dapat diatur lewat berkas `.env` 
 Aplikasi ini dilengkapi pengujian menyeluruh berbasis Node.js native tanpa ketergantungan library luar:
 
 ```bash
-# 1. Jalankan pengujian end-to-end API (42 assertion lengkap)
+# 1. Jalankan pengujian end-to-end API (45 assertion lengkap)
 npm run test:e2e
 
 # 2. Jalankan simulasi uji ketahanan mati lampu / crash test
@@ -357,7 +357,7 @@ Repositori ini menyertakan alur CI/CD otomatis di `.github/workflows/ci.yml`:
 
 1. **Continuous Integration (CI)**:
    - Berjalan pada setiap `push` dan `pull_request` ke cabang `main`.
-   - Menguji instalasi dependensi (`npm ci`), kompilasi TypeScript & Vite (`npm run build`), pengujian API e2e (42 assertions), uji ketahanan mati lampu (`npm run test:crash`), dan verifikasi pembuatan image Docker (`docker build`).
+   - Menguji instalasi dependensi (`npm ci`), kompilasi TypeScript & Vite (`npm run build`), pengujian API e2e (45 assertions), uji ketahanan mati lampu (`npm run test:crash`), dan verifikasi pembuatan image Docker (`docker build`).
 2. **Continuous Deployment (CD)**:
    - Berjalan otomatis hanya setelah tahap CI lulus pada `push` ke cabang `main`.
    - Melakukan SSH ke VPS, menarik kode terbaru (`git pull --ff-only`), menyusun ulang container (`docker compose up -d --build`), memverifikasi health check endpoint `/api/state`, dan membersihkan image lama yang tidak terpakai (`docker image prune -f`).

@@ -169,12 +169,29 @@ function syncDir(dir) {
 // Catatan tambah/kurang suara, undo, reset, perubahan data, dan kejadian server.
 // Ditulis append-only ke data/audit.log (JSONL) agar tetap ada walau state direset.
 
+function getClientIp(req) {
+  if (!req) return '';
+  const socketIp = req.socket?.remoteAddress || '';
+  const isLoopback = socketIp === '127.0.0.1' || socketIp === '::1' || socketIp === '::ffff:127.0.0.1';
+
+  // Jika di balik Cloudflare Tunnel / reverse proxy lokal, ambil IP klien asli.
+  if (isLoopback) {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (cfIp && typeof cfIp === 'string') return cfIp.trim();
+    const xff = req.headers['x-forwarded-for'];
+    if (xff && typeof xff === 'string') return xff.split(',')[0].trim();
+    const realIp = req.headers['x-real-ip'];
+    if (realIp && typeof realIp === 'string') return realIp.trim();
+  }
+  return socketIp;
+}
+
 function auditEvent(action, detail = {}, req = null) {
   const entry = {
     seq: (state.auditSeq = (Number(state.auditSeq) || 0) + 1),
     at: Date.now(),
     action,
-    ip: req ? String(req.socket.remoteAddress || '') : '',
+    ip: getClientIp(req),
     ...detail,
   };
 
@@ -327,13 +344,25 @@ function isAdmin(req) {
 }
 
 const attempts = new Map();
+const LOGIN_LIMIT = 8;
+const LOGIN_WINDOW_MS = 60_000;
+const ATTEMPTS_PRUNE_AT = 5_000;
 
 function rateLimited(ip) {
   const now = Date.now();
-  const entry = attempts.get(ip) || { count: 0, until: now + 60_000 };
-  if (now > entry.until) attempts.set(ip, { count: 1, until: now + 60_000 });
-  else if (entry.count >= 8) return true;
-  else entry.count++;
+  const entry = attempts.get(ip);
+
+  if (!entry || now > entry.until) {
+    if (attempts.size >= ATTEMPTS_PRUNE_AT) {
+      for (const [key, value] of attempts) if (now > value.until) attempts.delete(key);
+    }
+    attempts.set(ip, { count: 1, until: now + LOGIN_WINDOW_MS });
+    return false;
+  }
+
+  if (entry.count >= LOGIN_LIMIT) return true;
+
+  entry.count += 1;
   return false;
 }
 
@@ -412,7 +441,7 @@ async function api(req, res, path) {
   }
 
   if (path === '/api/login' && req.method === 'POST') {
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = getClientIp(req) || 'unknown';
     if (rateLimited(ip)) return json(res, 429, { error: 'Terlalu banyak percobaan. Tunggu satu menit.' });
     const body = JSON.parse((await readBody(req)) || '{}');
     if (String(body.pin || '') !== PIN) return json(res, 401, { error: 'PIN salah.' });

@@ -170,6 +170,40 @@ assert(
 r = await call('/api/audit?limit=9999');
 assert(r.status === 200 && r.body.entries.length <= 500, 'limit audit dibatasi maksimal 500 entri');
 
+// 11b. di balik Cloudflare Tunnel / proxy lokal, IP klien asli harus dipakai
+// (bukan 127.0.0.1) agar rate limit login tidak memblokir semua orang sekaligus.
+const forward = (headers, body) =>
+  fetch(BASE + '/api/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+
+// IP asli harus tercatat di audit saat diteruskan via proxy.
+await call('/api/vote', {
+  method: 'POST',
+  headers: { 'cf-connecting-ip': '203.0.113.50' },
+  body: JSON.stringify({ id: '01', delta: 1 }),
+});
+r = await call('/api/audit?limit=1');
+assert(r.body.entries[0].ip === '203.0.113.50', 'IP cf-connecting-ip tercatat di audit saat koneksi loopback');
+
+// 8 kali salah PIN dari satu IP setelah kuota habis -> 429 hanya untuk IP itu.
+const spoofIp = '203.0.113.7';
+let capped = false;
+for (let i = 0; i < 12; i += 1) {
+  const res = await forward({ 'cf-connecting-ip': spoofIp }, { pin: '000000' });
+  if (res.status === 429) {
+    capped = true;
+    break;
+  }
+}
+assert(capped, 'rate limit menahan percobaan PIN berulang dari satu IP');
+
+// IP lain tetap boleh mencoba walau IP di atas diblokir.
+const otherIp = await forward({ 'cf-connecting-ip': '198.51.100.9' }, { pin: '123456' });
+assert(otherIp.status === 204, 'IP lain tidak ikut terblokir oleh rate limit');
+
 // 12. logout
 r = await call('/api/logout', { method: 'POST' });
 assert(r.status === 204, 'logout berhasil');

@@ -5,7 +5,10 @@ services:
     ports:
       - "8787:8787"
     environment:
-      - ADMIN_PIN=123456
-      - DATA_DIR=/data
+      # Ganti PIN ini sebelum pemilihan. Bisa juga lewat file .env di samping compose.
+      ADMIN_PIN: ${ADMIN_PIN:-123456}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      DATA_DIR: /data
+      TZ: ${TZ:-Asia/Jakarta}
     volumes:
       - ./data:/data

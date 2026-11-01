@@ -177,15 +177,28 @@ $env:ADMIN_PIN="654321"; $env:PORT="8080"; npm start
 
 ---
 
-### 3. Menggunakan Docker (Direkomendasikan di TPS)
-Sistem langsung berjalan terisolasi dengan konfigurasi siap pakai:
+### 3. Menggunakan Docker (Direkomendasikan di TPS / VPS)
+Berkas `Dockerfile`, `docker-compose.yml`, `.dockerignore`, dan `docker-entrypoint.sh` sudah disertakan di repositori, sehingga deployment cukup dengan *pull* lalu *build*:
 
 ```bash
-# Bangun dan jalankan kontainer di latar belakang
+# 1. Ambil repositori
+git clone https://github.com/ROYALXYZ/pemilihan-ketuart.git
+cd pemilihan-ketuart
+
+# 2. Siapkan konfigurasi (ganti PIN sebelum pemilihan)
+cp .env.example .env
+nano .env   # isi ADMIN_PIN dan SESSION_SECRET
+
+# 3. Bangun dan jalankan kontainer
 docker compose up -d --build
 ```
 
-Aplikasi dapat diakses di `http://localhost:8787`. Folder `./data` otomatis terpasang ke `/data` di dalam kontainer, sehingga data suara, foto, dan log audit tetap tersimpan di laptop host meski kontainer dihentikan atau dibuat ulang.
+Aplikasi dapat diakses di `http://localhost:8787` (atau `http://IP-VPS:8787` bila dijalankan di VPS).
+
+Catatan penting:
+- Folder `./data` otomatis terpasang ke `/data` di dalam kontainer, sehingga suara, foto, dan log audit tetap tersimpan di host meski kontainer dihentikan atau dibuat ulang.
+- Container berjalan sebagai pengguna non-root `node` (uid 1000). `docker-entrypoint.sh` otomatis menyiapkan dan memperbaiki izin `/data` saat kontainer start sebagai root, jadi tidak perlu `chown` manual meskipun folder `data/` hasil `git clone` dimiliki root.
+- Bila VPS memakai firewall, buka port `8787` (atau arahkan reverse proxy Nginx/Caddy ke port tersebut).
 
 Untuk menghentikan:
 ```bash
@@ -309,8 +322,11 @@ Aplikasi dapat dikonfigurasi menggunakan variabel lingkungan sistem atau file en
 | `PORT` | `8787` | Port HTTP yang digunakan server |
 | `ADMIN_PIN` | `123456` | PIN angka untuk login operator panel TPS |
 | `DATA_DIR` | `./data` | Lokasi folder penyimpanan state, foto, dan audit log |
-| `SESSION_SECRET` | *(Random 32 bytes)* | Kunci enkripsi tanda tangan cookie sesi HMAC-SHA256 |
+| `SESSION_SECRET` | *(Random 32 bytes)* | Kunci enkripsi tanda tangan cookie sesi HMAC-SHA256. Isi nilai tetap agar sesi operator tidak hilang saat kontainer restart |
+| `TZ` | `Asia/Jakarta` | Zona waktu kontainer (dipakai pada `docker-compose.yml`) |
 | `NODE_ENV` | `development` | Disetel ke `production` pada image kontainer Docker |
+
+Pada deployment Docker, semua variabel di atas dapat diatur lewat berkas `.env` di samping `docker-compose.yml` (lihat `.env.example`).
 
 ---
 

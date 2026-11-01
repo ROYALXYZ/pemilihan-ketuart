@@ -22,7 +22,7 @@ data/*
 .impeccable/
 .playwright-mcp/
 .opencode-jce/
-.opencode-context.md
+.opencode-context*
 
 # Log files
 npm-debug.log*
@@ -40,3 +40,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# JCE context index runtime state
+.opencode-jce/context/

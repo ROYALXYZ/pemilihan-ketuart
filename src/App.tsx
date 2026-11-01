@@ -1371,15 +1371,15 @@ export function App() {
               <Input
                 id="pin-input"
                 type="password"
-                maxLength={10}
-                placeholder="Default: 123456"
+                maxLength={64}
+                placeholder="Masukkan PIN"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value)}
                 autoFocus
                 className="text-center font-mono text-xl tracking-widest"
               />
               <p className="text-[11px] text-muted-foreground">
-                PIN bawaan adalah <span className="font-mono font-bold">123456</span> (dapat diubah via env <code className="text-xs">ADMIN_PIN</code>).
+                PIN diatur panitia melalui variabel <code className="text-xs">ADMIN_PIN</code> di server.
               </p>
             </div>
 

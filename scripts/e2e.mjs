@@ -37,6 +37,10 @@ assert(r.status === 401, 'PIN salah ditolak 401');
 r = await call('/api/login', { method: 'POST', body: JSON.stringify({ pin: '123456' }) });
 assert(r.status === 204 && cookie.startsWith('session='), 'login benar memasang cookie session');
 
+// 3a. PIN panjang (>10 digit) juga diterima
+r = await call('/api/login', { method: 'POST', body: JSON.stringify({ pin: '0923847423423490709' }) });
+assert(r.status === 401, 'PIN panjang salah tetap ditolak dengan rapi');
+
 // 3b. mulai dari kondisi bersih agar uji bisa diulang
 r = await call('/api/reset', { method: 'POST', body: JSON.stringify({ confirm: 'RESET' }) });
 assert(r.status === 200 && r.body.total === 0, 'reset awal: mulai dari 0 suara');

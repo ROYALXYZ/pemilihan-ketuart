@@ -69,53 +69,135 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.check.outputs.ready }}
+      has_standby: ${{ steps.check.outputs.has_standby }}
     steps:
       - id: check
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS2_HOST: ${{ secrets.VPS2_HOST }}
+          VPS2_USER: ${{ secrets.VPS2_USER }}
+          VPS2_APP_DIR: ${{ secrets.VPS2_APP_DIR }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS2_KNOWN_HOSTS: ${{ secrets.VPS2_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          if [ -n "$VPS_HOST" ] && [ -n "$VPS_SSH_KEY" ] && [ -n "$VPS_KNOWN_HOSTS" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "Secret deploy lengkap, lanjut ke VPS."
-          else
+
+          primary_secrets=(VPS_HOST VPS_USER VPS_APP_DIR VPS_SSH_KEY VPS_KNOWN_HOSTS)
+          standby_secrets=(VPS2_HOST VPS2_USER VPS2_APP_DIR VPS2_SSH_KEY VPS2_KNOWN_HOSTS)
+
+          primary_set=0
+          primary_missing=""
+          for name in "${primary_secrets[@]}"; do
+            if [ -n "${!name}" ]; then
+              primary_set=$((primary_set + 1))
+            else
+              primary_missing="$primary_missing $name"
+            fi
+          done
+
+          standby_set=0
+          standby_missing=""
+          for name in "${standby_secrets[@]}"; do
+            if [ -n "${!name}" ]; then
+              standby_set=$((standby_set + 1))
+            else
+              standby_missing="$standby_missing $name"
+            fi
+          done
+
+          # Tanpa konfigurasi target sama sekali, deploy memang tidak diaktifkan.
+          if [ "$primary_set" -eq 0 ] && [ "$standby_set" -eq 0 ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Deploy dilewati: secret VPS_HOST / VPS_SSH_KEY / VPS_KNOWN_HOSTS belum lengkap."
+            echo "has_standby=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy dilewati: tidak ada secret target VPS yang dikonfigurasi."
+            exit 0
+          fi
+
+          # Target utama wajib lengkap. Konfigurasi parsial harus gagal, bukan dilewati diam-diam.
+          if [ "$primary_set" -eq 0 ]; then
+            echo "::error::Secret VPS2_* diset, tetapi target utama belum dikonfigurasi. Isi VPS_HOST, VPS_USER, VPS_APP_DIR, VPS_SSH_KEY, dan VPS_KNOWN_HOSTS."
+            exit 1
+          fi
+          if [ -n "$primary_missing" ]; then
+            echo "::error::Secret target utama belum lengkap:$primary_missing. Lengkapi semua secret tersebut (VPS_PORT opsional, default 22)."
+            exit 1
+          fi
+
+          # Standby hanya aktif bila VPS2_HOST diset; jika aktif, semua secret standby wajib lengkap.
+          if [ "$standby_set" -gt 0 ] && [ -z "$VPS2_HOST" ]; then
+            echo "::error::Secret VPS2_* lain diset tanpa VPS2_HOST. Set VPS2_HOST atau hapus seluruh secret VPS2_* agar tidak terjadi partial/silent skip."
+            exit 1
+          fi
+          if [ "$standby_set" -gt 0 ] && [ -n "$standby_missing" ]; then
+            echo "::error::VPS2_HOST diset tetapi secret standby belum lengkap:$standby_missing. Lengkapi semua secret tersebut (VPS2_PORT opsional, default 22)."
+            exit 1
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [ "$standby_set" -gt 0 ]; then
+            echo "has_standby=true" >> "$GITHUB_OUTPUT"
+            echo "Secret target utama dan standby lengkap."
+          else
+            echo "has_standby=false" >> "$GITHUB_OUTPUT"
+            echo "Secret target utama lengkap; standby tidak dikonfigurasi."
           fi
 
   deploy:
-    name: Deploy to VPS
+    name: Deploy code to VPS (active + standby opsional)
     needs: [verify, preflight]
     if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-latest
     environment: production
     env:
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      HAS_STANDBY: ${{ needs.preflight.outputs.has_standby }}
     concurrency:
       group: deploy-production
       cancel-in-progress: false
     steps:
+      # Satu sesi Tailscale dipakai untuk kedua host (utama dan standby).
       - name: Connect to Tailscale (opsional untuk VPS privat/tanpa IP publik)
         if: env.TAILSCALE_AUTHKEY != ''
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ env.TAILSCALE_AUTHKEY }}
 
-      - name: Prepare SSH key
+      - name: Prepare SSH keys
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS2_KNOWN_HOSTS: ${{ secrets.VPS2_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
 
-      - name: Pull and restart on VPS
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy_primary
+          chmod 600 ~/.ssh/id_deploy_primary
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts_primary
+          chmod 600 ~/.ssh/known_hosts_primary
+          echo "SSH key target utama siap."
+
+          if [ "${HAS_STANDBY:-false}" = "true" ]; then
+            printf '%s\n' "$VPS2_SSH_KEY" > ~/.ssh/id_deploy_standby
+            chmod 600 ~/.ssh/id_deploy_standby
+            printf '%s\n' "$VPS2_KNOWN_HOSTS" > ~/.ssh/known_hosts_standby
+            chmod 600 ~/.ssh/known_hosts_standby
+            echo "SSH key target standby siap."
+          else
+            echo "Standby tidak dikonfigurasi, hanya target utama yang disiapkan."
+          fi
+
+      # --- Target utama (active) ---
+      # continue-on-error dipakai agar kegagalan target utama tidak menghentikan
+      # pemrosesan target standby; status akhir dilaporkan dan digagalkan di step "Ringkasan".
+      - name: Deploy to primary VPS (pull, restart, health check)
+        id: deploy_primary
+        continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
@@ -123,8 +205,9 @@ jobs:
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_deploy -p "${VPS_PORT:-22}" \
+          ssh -i ~/.ssh/id_deploy_primary -p "${VPS_PORT:-22}" \
             -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts_primary" \
             "$VPS_USER@$VPS_HOST" \
             "APP_DIR='$VPS_APP_DIR' bash -s" <<'REMOTE'
           set -euo pipefail
@@ -162,13 +245,137 @@ jobs:
           exit 1
           REMOTE
 
-      - name: Clean old images
+      - name: Clean old images on primary VPS
+        id: prune_primary
+        continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_USER: ${{ secrets.VPS_USER }}
-        continue-on-error: true
         run: |
-          ssh -i ~/.ssh/id_deploy -p "${VPS_PORT:-22}" \
+          ssh -i ~/.ssh/id_deploy_primary -p "${VPS_PORT:-22}" \
             -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts_primary" \
             "$VPS_USER@$VPS_HOST" "docker image prune -f"
+
+      # --- Target standby (opsional, hanya kode; data/ TIDAK direplikasi) ---
+      - name: Deploy to standby VPS (pull, restart, health check)
+        id: deploy_standby
+        if: env.HAS_STANDBY == 'true'
+        continue-on-error: true
+        env:
+          VPS2_HOST: ${{ secrets.VPS2_HOST }}
+          VPS2_PORT: ${{ secrets.VPS2_PORT }}
+          VPS2_USER: ${{ secrets.VPS2_USER }}
+          VPS2_APP_DIR: ${{ secrets.VPS2_APP_DIR }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy_standby -p "${VPS2_PORT:-22}" \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts_standby" \
+            "$VPS2_USER@$VPS2_HOST" \
+            "APP_DIR='$VPS2_APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          if [ ! -d "$APP_DIR/.git" ]; then
+            echo "Folder deploy tidak ditemukan atau bukan repo git: $APP_DIR" >&2
+            exit 1
+          fi
+
+          cd "$APP_DIR"
+          echo "== Sebelum: $(git rev-parse --short HEAD) =="
+
+          git fetch --prune origin main
+          git pull --ff-only origin main
+
+          if [ ! -f .env ]; then
+            echo "PERINGATAN: .env tidak ada, docker-compose memakai nilai bawaan" >&2
+          fi
+
+          docker compose up -d --build
+          docker compose ps
+
+          echo "== Sesudah: $(git rev-parse --short HEAD) =="
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8787/api/state >/dev/null; then
+              echo "Health check OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Health check gagal, log terakhir:" >&2
+          docker compose logs --tail 50 >&2
+          exit 1
+          REMOTE
+
+      - name: Clean old images on standby VPS
+        id: prune_standby
+        if: env.HAS_STANDBY == 'true'
+        continue-on-error: true
+        env:
+          VPS2_HOST: ${{ secrets.VPS2_HOST }}
+          VPS2_PORT: ${{ secrets.VPS2_PORT }}
+          VPS2_USER: ${{ secrets.VPS2_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy_standby -p "${VPS2_PORT:-22}" \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts_standby" \
+            "$VPS2_USER@$VPS2_HOST" "docker image prune -f"
+
+      - name: Ringkasan hasil deploy (report per target)
+        if: always()
+        env:
+          PRIMARY_DEPLOY: ${{ steps.deploy_primary.outcome }}
+          PRIMARY_PRUNE: ${{ steps.prune_primary.outcome }}
+          STANDBY_DEPLOY: ${{ steps.deploy_standby.outcome }}
+          STANDBY_PRUNE: ${{ steps.prune_standby.outcome }}
+        run: |
+          set -euo pipefail
+
+          standby_mode="$HAS_STANDBY"
+          primary_deploy="${PRIMARY_DEPLOY:-skipped}"
+          primary_prune="${PRIMARY_PRUNE:-skipped}"
+          standby_deploy="${STANDBY_DEPLOY:-skipped}"
+          standby_prune="${STANDBY_PRUNE:-skipped}"
+
+          if [ "$standby_mode" = "true" ]; then
+            standby_deploy_label="$standby_deploy"
+            standby_prune_label="$standby_prune"
+          else
+            standby_deploy_label="tidak dikonfigurasi"
+            standby_prune_label="tidak dikonfigurasi"
+          fi
+
+          failed=0
+          [ "$primary_deploy" = "success" ] || failed=1
+          if [ "$standby_mode" = "true" ] && [ "$standby_deploy" != "success" ]; then
+            failed=1
+          fi
+
+          {
+            echo "### Ringkasan deploy"
+            echo ""
+            echo "| Target | Kode + health check | Bersihkan image |"
+            echo "| --- | --- | --- |"
+            echo "| Utama (active) | $primary_deploy | $primary_prune |"
+            echo "| Standby (opsional) | $standby_deploy_label | $standby_prune_label |"
+            echo ""
+            if [ "$failed" -eq 1 ]; then
+              echo "Status: **ada target yang gagal**."
+            else
+              echo "Status: **semua target berhasil** (kode + health check)."
+            fi
+            echo ""
+            echo "Catatan: workflow ini hanya men-deploy kode. Data (foto, suara, audit/undo) pada folder \`data/\` tidak direplikasi ke standby."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::Deploy gagal pada minimal satu target. Lihat ringkasan di atas dan log step terkait."
+            exit 1
+          fi
+
+          echo "Deploy selesai pada semua target yang dikonfigurasi."

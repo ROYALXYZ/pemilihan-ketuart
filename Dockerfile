@@ -13,7 +13,8 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/src/server.mjs ./src/server.mjs
 COPY --from=build --chown=node:node /app/candidates.json ./candidates.json
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Lindungi dari checkout CRLF (Windows): shebang ber-CR membuat container gagal start.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 8787
 VOLUME ["/data"]
 ENTRYPOINT ["docker-entrypoint.sh"]

@@ -1,0 +1,22 @@
+# Normalisasi line ending: hindari CRLF yang merusak shebang skrip shell
+# dan membuat container gagal start di Linux.
+* text=auto eol=lf
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+
+# Berkas biner tidak boleh dinormalisasi
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.webp binary
+*.woff2 binary
+*.ico binary

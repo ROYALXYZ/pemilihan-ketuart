@@ -91,10 +91,18 @@ jobs:
     if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-latest
     environment: production
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
     concurrency:
       group: deploy-production
       cancel-in-progress: false
     steps:
+      - name: Connect to Tailscale (opsional untuk VPS privat/tanpa IP publik)
+        if: env.TAILSCALE_AUTHKEY != ''
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ env.TAILSCALE_AUTHKEY }}
+
       - name: Prepare SSH key
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}

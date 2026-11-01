@@ -362,4 +362,5 @@ Repositori ini menyertakan alur CI/CD otomatis di `.github/workflows/ci.yml`:
    - Berjalan otomatis hanya setelah tahap CI lulus pada `push` ke cabang `main`.
    - Melakukan SSH ke VPS, menarik kode terbaru (`git pull --ff-only`), menyusun ulang container (`docker compose up -d --build`), memverifikasi health check endpoint `/api/state`, dan membersihkan image lama yang tidak terpakai (`docker image prune -f`).
    - Membutuhkan konfigurasi *Secrets* di repositori GitHub (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_APP_DIR`, `VPS_SSH_KEY`, dan `VPS_KNOWN_HOSTS`).
+   - **Dukungan VPS Privat / Tanpa IP Publik (Tailscale)**: Bila VPS berada di balik NAT tanpa IP publik terbuka, pasang Tailscale di VPS dan tambahkan secret `TAILSCALE_AUTHKEY` di GitHub Actions. Runner GitHub akan otomatis tersambung ke Tailnet Anda sebelum melakukan SSH ke IP privat Tailscale VPS (`100.x.y.z`).
 
